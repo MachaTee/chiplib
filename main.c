@@ -1,32 +1,31 @@
 #include <stdlib.h>
 #include <time.h>
-#include <stdio.h>
 #include <SDL2/SDL.h>
+#include <stdio.h>
 
 #define STDLIB_H
 #define TIME_H
+#define DEBUG
 
 // Modify this macro to change the input filename
-#define FILE_NAME "test_opcode.ch8"
+#define FILE_NAME "tetris.ch8"
 
 #include <stdio.h>
 #include "chiplib.h"
 
-char buffer[MAX_ROM_SIZE];
+unsigned char buffer[MAX_ROM_SIZE] = {0};
 void read_rom(char const* filename)
 {
-	FILE *file = fopen(filename, "r");
+	FILE *file = fopen(filename, "rb");
 	if (file == NULL)
 	{
 		printf("Error: failed to open file '%s',\n", filename);
 		exit(EXIT_FAILURE);
 	}
 
-	int i, c;
-	while ((c = fgetc(file)) != EOF)
+	for (int i = 0; i < MAX_ROM_SIZE; ++i)
 	{
-		buffer[i] = c;
-		++i;
+		buffer[i] = fgetc(file);
 	}
 	fclose(file);
 }
@@ -39,12 +38,136 @@ void read_rom(char const* filename)
 #define DISPLAY_AREA_HEIGHT 32
 #define DISPLAY_AREA_SIZE 8
 
-
+void get_input(unsigned char *keypad)
+{
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
+	{
+		switch (event.type)
+		{
+			case SDL_QUIT:
+				exit(EXIT_SUCCESS);
+				break;
+			case SDL_KEYDOWN:
+				switch (event.key.keysym.sym)
+				{
+					case SDLK_ESCAPE:
+						exit(EXIT_SUCCESS);
+						break;
+					case SDLK_x:
+						keypad[0] = 1;
+						break;
+					case SDLK_1:
+						keypad[1] = 1;
+						break;
+					case SDLK_2:
+						keypad[2] = 1;
+						break;
+					case SDLK_3:
+						keypad[3] = 1;
+						break;
+					case SDLK_q:
+						keypad[4] = 1;
+						break;
+					case SDLK_w:
+						keypad[5] = 1;
+						break;
+					case SDLK_e:
+						keypad[6] = 1;
+						break;
+					case SDLK_a:
+						keypad[7] = 1;
+						break;
+					case SDLK_s:
+						keypad[8] = 1;
+						break;
+					case SDLK_d:
+						keypad[9] = 1;
+						break;
+					case SDLK_z:
+						keypad[10] = 1;
+						break;
+					case SDLK_c:
+						keypad[11] = 1;
+						break;
+					case SDLK_4:
+						keypad[12] = 1;
+						break;
+					case SDLK_r:
+						keypad[13] = 1;
+						break;
+					case SDLK_f:
+						keypad[14] = 1;
+						break;
+					case SDLK_v:
+						keypad[15] = 1;
+						break;
+				}
+				break;
+			case SDL_KEYUP:
+				switch (event.key.keysym.sym)
+				{
+					case SDLK_ESCAPE:
+						exit(EXIT_SUCCESS);
+						break;
+					case SDLK_x:
+						keypad[0] = 0;
+						break;
+					case SDLK_1:
+						keypad[1] = 0;
+						break;
+					case SDLK_2:
+						keypad[2] = 0;
+						break;
+					case SDLK_3:
+						keypad[3] = 0;
+						break;
+					case SDLK_q:
+						keypad[4] = 0;
+						break;
+					case SDLK_w:
+						keypad[5] = 0;
+						break;
+					case SDLK_e:
+						keypad[6] = 0;
+						break;
+					case SDLK_a:
+						keypad[7] = 0;
+						break;
+					case SDLK_s:
+						keypad[8] = 0;
+						break;
+					case SDLK_d:
+						keypad[9] = 0;
+						break;
+					case SDLK_z:
+						keypad[10] = 0;
+						break;
+					case SDLK_c:
+						keypad[11] = 0;
+						break;
+					case SDLK_4:
+						keypad[12] = 0;
+						break;
+					case SDLK_r:
+						keypad[13] = 0;
+						break;
+					case SDLK_f:
+						keypad[14] = 0;
+						break;
+					case SDLK_v:
+						keypad[15] = 0;
+						break;
+				}
+				break;
+			}
+			break;
+		}
+}
 int WinMain()
 {
         struct Chip8Machine Machine = {0};		// Instantiate the machine
 
-	SDL_Event event;
 	SDL_Renderer *renderer;
 	SDL_Window *window;
 
@@ -52,17 +175,15 @@ int WinMain()
 	SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC, &window, &renderer);
 
 	read_rom(FILE_NAME);
-	init_machine(&Machine, buffer, sizeof buffer);
-	for (int i = 0; i < 0x200; ++i)
-	{
-		printf("%d ", Machine.Memory.map[i]);
-	}
-
-	printf("\nPC: %x\n", Machine.Registers.PC);
-	printf("%x\n", sizeof(Machine.display));
-	printf("%x\n", Machine.opcode);
-
+	init_machine(&Machine, buffer, MAX_ROM_SIZE);
 	SDL_Rect rectangles[64][32];
+
+#ifdef DEBUG
+	for (int i = 0; i < MAX_ROM_SIZE; i+=2)
+	{
+		printf("%x%x\t", buffer[i], buffer[i + 1]);
+	}
+#endif
 
     	for (int i = 0; i < DISPLAY_AREA_WIDTH; i++)
     	{
@@ -76,7 +197,7 @@ int WinMain()
 
 	while (1)
 	{
-		SDL_PumpEvents();
+		get_input(Machine.keypad);
 		for (int i = 0; i < 64; ++i)
 		{
 			for (int j = 0; j < 32; ++j)
@@ -91,7 +212,6 @@ int WinMain()
 				}
 
 				SDL_RenderFillRect(renderer, &rectangles[i][j]);
-				// printf("%c", Machine.display[(j * 64) + i] - 128);
 			}
 		}
 		do_cycle(&Machine);

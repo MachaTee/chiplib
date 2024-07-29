@@ -13,7 +13,7 @@
 
 // Constants
 #define MAX_ROM_SIZE			0xE00			// Maximum ROM size, by default 3584 bytes (0xE00 = 0x1000 - 0x200)
-#define V_REGISTER_AMOUNT 		0xF
+#define V_REGISTER_AMOUNT 		16
 #define MEMORY_MAP_SIZE 		0x1000
 #define CHARACTER_ADDRESS_OFFSET 	0x50
 #define START_ADDRESS_OFFSET 		0x200
@@ -114,7 +114,7 @@ void OP_00EE(struct Chip8Machine *machine)
 	Jump to location nnnn. */
 void OP_1nnn(struct Chip8Machine *machine)
 {
-	machine->Registers.PC = OPCODE_ADDR;								// Mask away first MSB and assign to program counter
+	machine->Registers.PC = OPCODE_ADDR;							// Mask away first MSB and assign to program counter
 }
 
 /*	2nnn - CALL addr
@@ -197,16 +197,36 @@ void OP_8xy3(struct Chip8Machine *machine)
 	Set Vx = Vx + Vy, set VF = carry. */
 void OP_8xy4(struct Chip8Machine *machine)
 {
-	unsigned char result = machine->Registers.V[OPCODE_X] + machine->Registers.V[OPCODE_Y];		// Calculate Vx + Vy
-	machine->Registers.V[0xF] = (result < machine->Registers.V[OPCODE_X]);				// Set VF = 1 on overflow
-	machine->Registers.V[OPCODE_X] = result;								// Set Vx = Vx + Vy
+	unsigned short result = machine->Registers.V[OPCODE_X] + machine->Registers.V[OPCODE_Y];		// Calculate Vx + Vy
+	machine->Registers.V[OPCODE_X] = (unsigned char)result;								// Set Vx = Vx + Vy
+	if (result > 0xFF)
+		machine->Registers.V[0xF] = 1;				// Set VF = 1 on overflow
+	else
+		machine->Registers.V[0xF] = 0;
 }
 
 /*	8xy5 - SUB Vx, Vy
 	Set Vx = Vx - Vy, set VF = NOT borrow. */
 void OP_8xy5(struct Chip8Machine *machine)
 {
-	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_X] > machine->Registers.V[OPCODE_Y]);	// Set VF = 1 on overflow
+	unsigned char temp_v = machine->Registers.V[0xF];
+
+
+	if (machine->Registers.V[OPCODE_X] >= machine->Registers.V[OPCODE_Y])
+		machine->Registers.V[0xF] = 1;						// Set VF = 1 on overflow
+	else
+		machine->Registers.V[0xF] = 0;
+
+	// Account for edge-cases
+	if ((OPCODE_X == 0xF) || (OPCODE_X == 0xF && OPCODE_Y == 0xF))
+		return;
+
+	if (OPCODE_Y == 0xF)
+	{
+		machine->Registers.V[OPCODE_X] -= temp_v;
+		return;
+	}
+
 	machine->Registers.V[OPCODE_X] -= machine->Registers.V[OPCODE_Y];
 }
 
@@ -216,8 +236,17 @@ void OP_8xy5(struct Chip8Machine *machine)
 	Then Vx is divided by 2. */
 void OP_8xy6(struct Chip8Machine *machine)
 {
-	machine->Registers.V[0xF] = machine->Registers.V[OPCODE_X] & 0x1;
+
+	if (machine->Registers.V[OPCODE_X] % 2)
+		machine->Registers.V[0xF] = 1;
+	else
+		machine->Registers.V[0xF] = 0;
+
+	if (OPCODE_X == 0xF)
+		return;
+
 	machine->Registers.V[OPCODE_X] >>= 1;
+
 }
 
 /*	8xy7 - SUBN Vx, Vy
@@ -226,8 +255,13 @@ void OP_8xy6(struct Chip8Machine *machine)
 	and the results are stored in Vx. */
 void OP_8xy7(struct Chip8Machine *machine)
 {
-	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_Y] > machine->Registers.V[OPCODE_X]);	// VF = 1 if Vx > Vy, otherwise 0.
+//	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_Y] > machine->Registers.V[OPCODE_X]);	// VF = 1 if Vx > Vy, otherwise 0.
 	machine->Registers.V[OPCODE_X] = machine->Registers.V[OPCODE_Y] - machine->Registers.V[OPCODE_X];	// Vx = Vy - Vx.
+	if (machine->Registers.V[OPCODE_Y] >= machine->Registers.V[OPCODE_X])
+		machine->Registers.V[0xF] = 1;
+	else
+		machine->Registers.V[0xF] = 0;
+
 }
 
 /*	8xyE - SHL Vx {, Vy}
@@ -237,7 +271,9 @@ void OP_8xy7(struct Chip8Machine *machine)
 
 void OP_8xyE(struct Chip8Machine *machine)
 {
-	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_X] >= 0x80);				// VF = Most significant bit of VX.
+	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_X] > 0x80);				// VF = Most significant bit of VX.
+	if (OPCODE_X == 0xF)
+		return;
 	machine->Registers.V[OPCODE_X] <<= 1;								// Vx is shifted left.
 }
 
@@ -323,11 +359,11 @@ void OP_Fx07(struct Chip8Machine *machine)
 	Wait for a key press, store the value of the key in Vx. */
 void OP_Fx0A(struct Chip8Machine *machine)
 {
-	for (unsigned char x = 0x0; x <= 0xF; ++x)
+	for (unsigned char i = 0x0; i <= 0xF; ++i)
 	{
-		if (machine->keypad[x])
+		if (machine->keypad[i])
 		{
-			machine->Registers.V[OPCODE_X] = x;
+			machine->Registers.V[OPCODE_X] = i;
 			return;
 		}
 	}
@@ -353,7 +389,7 @@ void OP_Fx18(struct Chip8Machine *machine)
 	Set I = I + Vx. */
 void OP_Fx1E(struct Chip8Machine *machine)
 {
-	machine->Registers.I += machine->Registers.V[OPCODE_X];
+	machine->Registers.I = machine->Registers.I + machine->Registers.V[OPCODE_X];
 }
 
 /*	Fx29 - LD F, Vx
@@ -379,10 +415,10 @@ void OP_Fx33(struct Chip8Machine *machine)
 	Store registers V0 through Vx in memory starting at location I. */
 void OP_Fx55(struct Chip8Machine *machine)
 {
-	for (unsigned char x = 0; x <= OPCODE_X; ++x)
+	for (unsigned char i = 0; i <= OPCODE_X; ++i)
 	{
-		machine->Memory.map[machine->Registers.I + x] = machine->Registers.V[x];
-//		machine->Registers.I += machine->Registers.V[x];
+		machine->Memory.map[machine->Registers.I + i] = machine->Registers.V[i];
+//		machine->Registers.I += machine->Registers.V[i];
 	}
 }
 
@@ -390,10 +426,10 @@ void OP_Fx55(struct Chip8Machine *machine)
 	Read registers V0 through Vx from memory starting at location I. */
 void OP_Fx65(struct Chip8Machine *machine)
 {
-	for (unsigned char x = 0; x <= OPCODE_X; ++x)
+	for (unsigned char i = 0; i <= OPCODE_X; ++i)
 	{
-		machine->Registers.V[x] = machine->Memory.map[machine->Registers.I + x];
-//		machine->Registers.I += machine->Memory.map[machine->Registers.I + x];
+		machine->Registers.V[i] = machine->Memory.map[machine->Registers.I + i];
+//		machine->Registers.I += machine->Memory.map[machine->Registers.I + i];
 	}
 }
 
@@ -538,7 +574,7 @@ Errorable execute_instruction(struct Chip8Machine *machine)
 
 // Global functions
 /* ROM load function */
-Errorable load_rom(struct Chip8Machine *machine, char* rom, size_t rom_size)
+Errorable load_rom(struct Chip8Machine *machine, unsigned char* rom, size_t rom_size)
 {
 	if (rom_size > MAX_ROM_SIZE)
 		return EXCESSIVE_ROM_SIZE;
@@ -548,7 +584,7 @@ Errorable load_rom(struct Chip8Machine *machine, char* rom, size_t rom_size)
 }
 
 /* Machine initialization function */
-void init_machine(struct Chip8Machine *machine, char* rom, size_t rom_size)
+void init_machine(struct Chip8Machine *machine, unsigned char* rom, size_t rom_size)
 {
 	load_charset(machine);										// Load character set
 
@@ -579,11 +615,11 @@ void do_cycle(struct Chip8Machine *machine)
 	machine->random_byte = rand()%256;
 
 #ifdef HAS_STDIO
-	printf("%x\t%d\t", machine->opcode, machine->Registers.I);
-	for (size_t i = 0; i <= 0xF; ++i)
-		printf("V%x: %x\t", i, machine->Registers.V[i]);
-
-	printf("%d\n", machine->Registers.PC);
+	printf("%x\t%x\t", machine->opcode, machine->Registers.I);
+//	for (size_t i = 0; i <= 0xF; ++i)
+//		printf("V%x: %x\t", i, machine->Registers.V[i]);
+	printf("%x\t", machine->Registers.SP);
+	printf("%x\n", machine->Registers.PC);
 #endif
 
 	if (execution_error != STATUS_OK)											// If error is detected
