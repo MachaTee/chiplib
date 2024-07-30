@@ -10,7 +10,7 @@
 #ifdef HAS_STDIO
 	#include <stdio.h>
 #endif
-
+#undef HAS_STDIO
 // Constants
 #define MAX_ROM_SIZE			0xE00			// Maximum ROM size, by default 3584 bytes (0xE00 = 0x1000 - 0x200)
 #define V_REGISTER_AMOUNT 		16
@@ -45,11 +45,6 @@ struct Chip8Registers
 	unsigned short PC;			// 16-bit program counter
 };
 
-struct Chip8Memory
-{
-	unsigned char map[MEMORY_MAP_SIZE];	// Memory map with address space 0x000 to 0xFFF
-};
-
 const unsigned char character_set[CHARACTER_SET_SIZE] =
 {
 	0xF0, 0x90, 0x90, 0x90, 0xF0, 		// 0
@@ -72,13 +67,13 @@ const unsigned char character_set[CHARACTER_SET_SIZE] =
 
 struct Chip8Machine
 {
-	struct Chip8Registers Registers;
-	struct Chip8Memory Memory;
-	unsigned char display[DISPLAY_WIDTH * DISPLAY_HEIGHT];
-	unsigned char keypad[KEYPAD_SIZE];
-	unsigned char random_byte;
-	unsigned short opcode;
-	unsigned short stack[STACK_SIZE];
+	struct Chip8Registers Registers;				// Struct of 16 registers plus program counter, increment and stack pointer
+	unsigned char memory[MEMORY_MAP_SIZE];				// Memory map with address space 0x000 to 0xFFF
+	unsigned char display[DISPLAY_WIDTH * DISPLAY_HEIGHT];		// 64 x 32 display
+	unsigned char keypad[KEYPAD_SIZE];				// Keypad with 16 keys
+	unsigned char random_byte;					// Random byte, randomly generated each cycle
+	unsigned short opcode;						// Current opcode
+	unsigned short stack[STACK_SIZE];				// 16-layer program stack
 };
 
 
@@ -88,10 +83,10 @@ void load_charset(struct Chip8Machine *machine)
 {
 //	for (unsigned int x = 0; x < CHARACTER_SET_SIZE; ++x)
 //	{
-//		machine->Memory.map[CHARACTER_ADDRESS_OFFSET + x] = character_set[x];
+//		machine->memory[CHARACTER_ADDRESS_OFFSET + x] = character_set[x];
 //	}
 
-	memcpy(machine->Memory.map + CHARACTER_ADDRESS_OFFSET, character_set, CHARACTER_SET_SIZE * sizeof(char));
+	memcpy(machine->memory + CHARACTER_ADDRESS_OFFSET, character_set, CHARACTER_SET_SIZE * sizeof(char));
 }
 
 // CPU instruction functions
@@ -99,7 +94,7 @@ void load_charset(struct Chip8Machine *machine)
 	Clear the display. */
 void OP_00E0(struct Chip8Machine *machine)
 {
-	memset(machine->display, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT);					// Set all pixels to 0
+	memset(machine->display, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT);						// Set all pixels to 0
 }
 
 /*	00EE - RET
@@ -107,47 +102,47 @@ void OP_00E0(struct Chip8Machine *machine)
 void OP_00EE(struct Chip8Machine *machine)
 {
 	--machine->Registers.SP;										// Decrement stack pointer
-	machine->Registers.PC = machine->stack[machine->Registers.SP];					// Set program counter to the new stack pointer
+	machine->Registers.PC = machine->stack[machine->Registers.SP];						// Set program counter to the new stack pointer
 }
 
 /*	1nnn - JP addr
 	Jump to location nnnn. */
 void OP_1nnn(struct Chip8Machine *machine)
 {
-	machine->Registers.PC = OPCODE_ADDR;							// Mask away first MSB and assign to program counter
+	machine->Registers.PC = OPCODE_ADDR;									// Mask away first MSB and assign to program counter
 }
 
 /*	2nnn - CALL addr
 	Call subroutine at nnn. */
 void OP_2nnn(struct Chip8Machine *machine)
 {
-	machine->stack[machine->Registers.SP] = machine->Registers.PC;					// Put current PC onto the top of the stack
-	++machine->Registers.SP;									// Increment stack pointer
-	machine->Registers.PC = OPCODE_ADDR;								// Mask away first MSB and assign to program counter
+	machine->stack[machine->Registers.SP] = machine->Registers.PC;						// Put current PC onto the top of the stack
+	++machine->Registers.SP;										// Increment stack pointer
+	machine->Registers.PC = OPCODE_ADDR;									// Mask away first MSB and assign to program counter
 }
 
 /*	3xkk - SE Vx, byte
 	Skip next instruction if Vx = kk. */
 void OP_3xkk(struct Chip8Machine *machine)
 {
-	if (machine->Registers.V[OPCODE_X] == OPCODE_BYTE)						// If Vx equals byte
-		machine->Registers.PC += 2;								// Increment PC by 2
+	if (machine->Registers.V[OPCODE_X] == OPCODE_BYTE)							// If Vx equals byte
+		machine->Registers.PC += 2;									// Increment PC by 2
 }
 
 /*	4xkk - SNE Vx, byte
 	Skip next instruction if Vx != kk. */
 void OP_4xkk(struct Chip8Machine *machine)
 {
-	if (machine->Registers.V[OPCODE_X] != OPCODE_BYTE)						// If Vx does not equal byte
-		machine->Registers.PC += 2;								// Increment PC by 2 if Vx != byte
+	if (machine->Registers.V[OPCODE_X] != OPCODE_BYTE)							// If Vx does not equal byte
+		machine->Registers.PC += 2;									// Increment PC by 2 if Vx != byte
 }
 
 /*	5xy0 - SE Vx, Vy
 	Skip next instruction if Vx = Vy. */
 void OP_5xy0(struct Chip8Machine *machine)
 {
-	if (machine->Registers.V[OPCODE_X] == machine->Registers.V[OPCODE_Y])				// If Vx equals Vy
-		machine->Registers.PC += 2;								// Increment PC by 2 if Vx == Vy
+	if (machine->Registers.V[OPCODE_X] == machine->Registers.V[OPCODE_Y])					// If Vx equals Vy
+		machine->Registers.PC += 2;									// Increment PC
 }
 
 
@@ -155,14 +150,14 @@ void OP_5xy0(struct Chip8Machine *machine)
 	Set Vx = kk. */
 void OP_6xkk(struct Chip8Machine *machine)
 {
-	machine->Registers.V[OPCODE_X] = OPCODE_BYTE;							// Set Vx to byte
+	machine->Registers.V[OPCODE_X] = OPCODE_BYTE;								// Set Vx to byte
 }
 
 /*	7xkk - ADD Vx, byte
 	Set Vx = Vx + kk. */
 void OP_7xkk(struct Chip8Machine *machine)
 {
-	machine->Registers.V[OPCODE_X] += OPCODE_BYTE;							// Increment Vx by byte
+	machine->Registers.V[OPCODE_X] += OPCODE_BYTE;								// Increment Vx by byte
 }
 
 /*	8xy0 - LD Vx, Vy
@@ -198,36 +193,36 @@ void OP_8xy3(struct Chip8Machine *machine)
 void OP_8xy4(struct Chip8Machine *machine)
 {
 	unsigned short result = machine->Registers.V[OPCODE_X] + machine->Registers.V[OPCODE_Y];		// Calculate Vx + Vy
-	machine->Registers.V[OPCODE_X] = (unsigned char)result;								// Set Vx = Vx + Vy
-	if (result > 0xFF)
-		machine->Registers.V[0xF] = 1;				// Set VF = 1 on overflow
-	else
-		machine->Registers.V[0xF] = 0;
+	machine->Registers.V[OPCODE_X] = (unsigned char)result;							// Set Vx = Vx + Vy
+	if (result > 0xFF)											// On overflow
+		machine->Registers.V[0xF] = 1;									// Set VF = 1
+	else													// Otherwise
+		machine->Registers.V[0xF] = 0;									// Set VF = 0
 }
 
 /*	8xy5 - SUB Vx, Vy
 	Set Vx = Vx - Vy, set VF = NOT borrow. */
 void OP_8xy5(struct Chip8Machine *machine)
 {
-	unsigned char temp_v = machine->Registers.V[0xF];
+	unsigned char temp_v = machine->Registers.V[0xF];							// Temporary register
 
-
-	if (machine->Registers.V[OPCODE_X] >= machine->Registers.V[OPCODE_Y])
-		machine->Registers.V[0xF] = 1;						// Set VF = 1 on overflow
-	else
-		machine->Registers.V[0xF] = 0;
+	if (machine->Registers.V[OPCODE_X] >= machine->Registers.V[OPCODE_Y])					// On borrow
+		machine->Registers.V[0xF] = 1;									// Set VF = 1
+	else													// Otherwise
+		machine->Registers.V[0xF] = 0;									// Set VF = 0
 
 	// Account for edge-cases
-	if ((OPCODE_X == 0xF) || (OPCODE_X == 0xF && OPCODE_Y == 0xF))
-		return;
-
-	if (OPCODE_Y == 0xF)
+	if ((OPCODE_X == 0xF) || (OPCODE_X == 0xF && OPCODE_Y == 0xF))						// On cases such as VF = Vx - VF
+		return;												// Exit, ensuring that VF is correctly set
+														// as the value of NOT borrow
+	if (OPCODE_Y == 0xF)											// On cases such as Vx = Vx - VF
 	{
-		machine->Registers.V[OPCODE_X] -= temp_v;
-		return;
+		machine->Registers.V[OPCODE_X] -= temp_v;							// Ensure correct subtraction
+		return;												// Exit, ensuring that Vx != Vx - !borrow
 	}
 
-	machine->Registers.V[OPCODE_X] -= machine->Registers.V[OPCODE_Y];
+	// Base case
+	machine->Registers.V[OPCODE_X] -= machine->Registers.V[OPCODE_Y];					// Standard expected behaviour (Vx = Vx - Vy)
 }
 
 /*	8xy6 - SHR Vx
@@ -237,15 +232,15 @@ void OP_8xy5(struct Chip8Machine *machine)
 void OP_8xy6(struct Chip8Machine *machine)
 {
 
-	if (machine->Registers.V[OPCODE_X] % 2)
-		machine->Registers.V[0xF] = 1;
-	else
-		machine->Registers.V[0xF] = 0;
+	if (machine->Registers.V[OPCODE_X] % 2)									// If LSB of Vx is 1
+		machine->Registers.V[0xF] = 1;									// Set VF to 1
+	else													// Otherwise
+		machine->Registers.V[0xF] = 0;									// Set VF to 0
 
-	if (OPCODE_X == 0xF)
-		return;
+	if (OPCODE_X == 0xF)											// Edge-case where VF = VF SHR 1
+		return;												// Return without shifting right
 
-	machine->Registers.V[OPCODE_X] >>= 1;
+	machine->Registers.V[OPCODE_X] >>= 1;									// Base-case where Vx SHR 1
 
 }
 
@@ -255,12 +250,11 @@ void OP_8xy6(struct Chip8Machine *machine)
 	and the results are stored in Vx. */
 void OP_8xy7(struct Chip8Machine *machine)
 {
-//	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_Y] > machine->Registers.V[OPCODE_X]);	// VF = 1 if Vx > Vy, otherwise 0.
 	machine->Registers.V[OPCODE_X] = machine->Registers.V[OPCODE_Y] - machine->Registers.V[OPCODE_X];	// Vx = Vy - Vx.
-	if (machine->Registers.V[OPCODE_Y] >= machine->Registers.V[OPCODE_X])
-		machine->Registers.V[0xF] = 1;
-	else
-		machine->Registers.V[0xF] = 0;
+	if (machine->Registers.V[OPCODE_Y] >= machine->Registers.V[OPCODE_X])					// If NOT borrow
+		machine->Registers.V[0xF] = 1;									// Set VF = 1
+	else													// Otheriwse
+		machine->Registers.V[0xF] = 0;									// Set VF = 0
 
 }
 
@@ -271,25 +265,25 @@ void OP_8xy7(struct Chip8Machine *machine)
 
 void OP_8xyE(struct Chip8Machine *machine)
 {
-	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_X] > 0x80);				// VF = Most significant bit of VX.
-	if (OPCODE_X == 0xF)
-		return;
-	machine->Registers.V[OPCODE_X] <<= 1;								// Vx is shifted left.
+	machine->Registers.V[0xF] = (machine->Registers.V[OPCODE_X] > 0x80);					// VF = Most significant bit of VX.
+	if (OPCODE_X == 0xF)											// Edge-case where VF = VF SHL 1
+		return;												// Exit without shifting VF left
+	machine->Registers.V[OPCODE_X] <<= 1;									// Base-case where Vx is shifted left
 }
 
 /*	9xy0 - SNE Vx, Vy
 	Skip next instruction if Vx != Vy. */
 void OP_9xy0(struct Chip8Machine *machine)
 {
-	if (machine->Registers.V[OPCODE_X] != machine->Registers.V[OPCODE_Y])				// If Vx is not equal to Vy.
-		machine->Registers.PC += 2;								// Increment PC by 2.
+	if (machine->Registers.V[OPCODE_X] != machine->Registers.V[OPCODE_Y])					// If Vx is not equal to Vy.
+		machine->Registers.PC += 2;									// Increment PC by 2.
 }
 
 /*	Annn - LD I, addr
 	Set I = nnn. */
 void OP_Annn(struct Chip8Machine *machine)
 {
-	machine->Registers.I = OPCODE_ADDR;								// Set I to nnn (addr).
+	machine->Registers.I = OPCODE_ADDR;									// Set I to nnn (addr).
 }
 
 /*	Bnnn - JP V0, addr
@@ -303,29 +297,29 @@ void OP_Bnnn(struct Chip8Machine *machine)
 	Set Vx = random byte AND kk. */
 void OP_Cxkk(struct Chip8Machine *machine)
 {
-	machine->Registers.V[OPCODE_X] = machine->random_byte & OPCODE_BYTE;				// Set Vx to a random number between 0 and 255
-}													// and kk (byte).
+	machine->Registers.V[OPCODE_X] = machine->random_byte & OPCODE_BYTE;					// Set Vx to a random number between 0 and 255
+}														// and kk (byte).
 
 /*	Dxyn - DRW Vx, Vy, nibble
 	Display n-byte sprite starting at memory location I at (Vx, Vy),
 	set VF = collision. */
 void OP_Dxyn(struct Chip8Machine *machine)
 {
-	unsigned char x_position = machine->Registers.V[OPCODE_X] % DISPLAY_WIDTH;			// Horizontal screen boundary wrapping.
-	unsigned char y_position = machine->Registers.V[OPCODE_Y] % DISPLAY_HEIGHT;			// Vertical screen boundary wrapping.
+	unsigned char x_position = machine->Registers.V[OPCODE_X] % DISPLAY_WIDTH;				// Horizontal screen boundary wrapping.
+	unsigned char y_position = machine->Registers.V[OPCODE_Y] % DISPLAY_HEIGHT;				// Vertical screen boundary wrapping.
 
-	machine->Registers.V[0xF] = 0;									// Set VF to 0.
-	for (unsigned char row = 0; row < OPCODE_N; ++row)						// For each row
+	machine->Registers.V[0xF] = 0;										// Set VF to 0.
+	for (unsigned char row = 0; row < OPCODE_N; ++row)							// For each row
 	{
-		unsigned char sprite_byte = machine->Memory.map[machine->Registers.I + row];		// Store sprite data as a byte
-		for (unsigned char column = 0; column < 8; ++column)					// For each column
+		unsigned char sprite_byte = machine->memory[machine->Registers.I + row];			// Store sprite data as a byte
+		for (unsigned char column = 0; column < 8; ++column)						// For each column
 		{
-			unsigned char sprite_pixel = sprite_byte & (0x80 >> column);			// Get if sprite pixel should be on or off
+			unsigned char sprite_pixel = sprite_byte & (0x80 >> column);				// Get if sprite pixel should be on or off
 			unsigned char* display_pixel = &machine->display[(y_position + row) * DISPLAY_WIDTH + (x_position + column)];	// Store pointer to current pixel in machine->display as a byte
-			if (sprite_pixel)								// If sprite pixel is on
+			if (sprite_pixel)									// If sprite pixel is on
 			{
-				machine->Registers.V[0xF] = (*display_pixel == 0xFF);			// Set VF to the state of display_pixel
-				*display_pixel ^= 0xFF;							// XOR Display Pixel with state of sprite pixel (0xFF in this case)
+				machine->Registers.V[0xF] |= (*display_pixel == 0xFF);				// Set VF to the state of display_pixel
+				*display_pixel ^= 0xFF;								// XOR Display Pixel with state of sprite pixel (0xFF in this case)
 			}
 		}
 	}
@@ -406,9 +400,9 @@ void OP_Fx29(struct Chip8Machine *machine)
 
 void OP_Fx33(struct Chip8Machine *machine)
 {
-	machine->Memory.map[machine->Registers.I] = (machine->Registers.V[OPCODE_X] / 100) % 10;
-	machine->Memory.map[machine->Registers.I + 1] = (machine->Registers.V[OPCODE_X] / 10) % 10;
-	machine->Memory.map[machine->Registers.I + 2] = machine->Registers.V[OPCODE_X] % 10;
+	machine->memory[machine->Registers.I] = (machine->Registers.V[OPCODE_X] / 100) % 10;
+	machine->memory[machine->Registers.I + 1] = (machine->Registers.V[OPCODE_X] / 10) % 10;
+	machine->memory[machine->Registers.I + 2] = machine->Registers.V[OPCODE_X] % 10;
 }
 
 /*	Fx55 - LD [I], Vx
@@ -417,7 +411,7 @@ void OP_Fx55(struct Chip8Machine *machine)
 {
 	for (unsigned char i = 0; i <= OPCODE_X; ++i)
 	{
-		machine->Memory.map[machine->Registers.I + i] = machine->Registers.V[i];
+		machine->memory[machine->Registers.I + i] = machine->Registers.V[i];
 //		machine->Registers.I += machine->Registers.V[i];
 	}
 }
@@ -428,8 +422,8 @@ void OP_Fx65(struct Chip8Machine *machine)
 {
 	for (unsigned char i = 0; i <= OPCODE_X; ++i)
 	{
-		machine->Registers.V[i] = machine->Memory.map[machine->Registers.I + i];
-//		machine->Registers.I += machine->Memory.map[machine->Registers.I + i];
+		machine->Registers.V[i] = machine->memory[machine->Registers.I + i];
+//		machine->Registers.I += machine->memory[machine->Registers.I + i];
 	}
 }
 
@@ -579,7 +573,7 @@ Errorable load_rom(struct Chip8Machine *machine, unsigned char* rom, size_t rom_
 	if (rom_size > MAX_ROM_SIZE)
 		return EXCESSIVE_ROM_SIZE;
 
-	memcpy(machine->Memory.map + START_ADDRESS_OFFSET, rom, rom_size * sizeof(char));
+	memcpy(machine->memory + START_ADDRESS_OFFSET, rom, rom_size * sizeof(char));
 	return STATUS_OK;
 }
 
@@ -608,7 +602,7 @@ void init_machine(struct Chip8Machine *machine, unsigned char* rom, size_t rom_s
 /* Cycle function */
 void do_cycle(struct Chip8Machine *machine)
 {
-	machine->opcode = (machine->Memory.map[machine->Registers.PC] << 8) | machine->Memory.map[machine->Registers.PC + 1];	// Fetch
+	machine->opcode = (machine->memory[machine->Registers.PC] << 8) | machine->memory[machine->Registers.PC + 1];	// Fetch
 	machine->Registers.PC += 2;												// Increment program counter
 	enum Error execution_error = execute_instruction(machine);								// Decode and Execute, error on failure
 
